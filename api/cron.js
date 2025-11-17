@@ -1,13 +1,13 @@
 // --- api/cron.js ---
-// Цей файл виконує тільки перевірку таблиці.
-// Vercel буде тикати його за розкладом.
+// Цей файл виконує ТІЛЬКИ перевірку таблиці.
+// Vercel буде "смикати" його за розкладом.
 
 require('dotenv').config();
-require('dns').setDefaultResultOrder('ipv4first');
+require('dns').setDefaultResultOrder('ipv4first'); // Вирішує проблеми з IPv6
 const { Telegraf } = require('telegraf');
 const fetch = require('node-fetch');
 
-// --- Ініціалізація ---
+// --- Ініціалізація (потрібна тут, оскільки це окрема функція) ---
 if (!process.env.BOT_TOKEN) {
   console.error('ПОМИЛКА: BOT_TOKEN не вказано!');
   process.exit(1);
@@ -16,10 +16,8 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const sheetUrl = process.env.SHEET_URL;
 const chatId = process.env.CHAT_ID;
 
-// Вона делейтить символи, які можуть зламати Markdown
 function escapeMarkdownV2(text) {
-  if (!text) return 'N/A'; 
-  // Це список всіх символів, які Telegram вимагає екранувати у MarkdownV2
+  if (!text) return 'N/A';
   return text.replace(/([_*\[\]()~`>#\+\-=|{}.!])/g, '\\$1');
 }
 
@@ -45,7 +43,7 @@ async function checkSheetAndSend() {
   }
 
   try {
-    // Отримуємо сьогоднішню дату
+    // 1. Отримуємо сьогоднішню дату
     const today = new Date().toLocaleDateString('uk-UA', {
       timeZone: 'Europe/Kyiv',
       day: '2-digit',
@@ -54,14 +52,14 @@ async function checkSheetAndSend() {
     });
     console.log(`Cron job: Сьогоднішня дата (Київ): ${today}`);
 
-    // Завантажуємо CSV-файл
+    // 2. Завантажуємо CSV-файл
     const response = await fetch(sheetUrl);
     if (!response.ok) {
       throw new Error(`Не вдалося завантажити таблицю: ${response.statusText}`);
     }
     const csvData = await response.text();
 
-    // Парсимо CSV
+    // 3. Парсимо CSV
     const rows = csvData.trim().split(/\r?\n/);
     if (rows.length < 2) {
       throw new Error('Таблиця порожня або містить лише заголовки.');
@@ -73,7 +71,7 @@ async function checkSheetAndSend() {
       headers[0] = headers[0].substring(1);
     }
 
-    // Знаходимо індекси
+    // 4. Знаходимо індекси
     const dateIndex = headers.indexOf('Публікація');
     const pubIndex = headers.indexOf('Публікація');
     const postIndex = headers.indexOf('Допис');
@@ -85,9 +83,10 @@ async function checkSheetAndSend() {
       throw new Error('Не можу знайти стовпець "Публікація". Перевір назву у таблиці.');
     }
 
-    // Пошук збігів
+    // 5. Пошук збігів
     for (let i = 1; i < rows.length; i++) {
       const columns = rows[i].split(',').map(c => c.trim());
+      // Перевірка, що стовпець дати існує (уникаємо помилок на порожніх рядках)
       if (columns.length <= dateIndex) {
         continue;
       }
