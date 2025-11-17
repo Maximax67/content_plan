@@ -1,5 +1,5 @@
 // --- api/cron.js ---
-// тільки перевірка таблиці.
+// Цей файл виконує ТІЛЬКИ перевірку таблиці.
 // Vercel буде тикати його за розкладом.
 
 require('dotenv').config();
@@ -8,26 +8,44 @@ const { Telegraf } = require('telegraf');
 const fetch = require('node-fetch');
 
 // --- Ініціалізація ---
+if (!process.env.BOT_TOKEN) {
+  console.error('ПОМИЛКА: BOT_TOKEN не вказано!');
+  process.exit(1);
+}
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const sheetUrl = process.env.SHEET_URL;
 const chatId = process.env.CHAT_ID;
 
+// Вона делейтить символи, які можуть зламати Markdown
+function escapeMarkdownV2(text) {
+  if (!text) return 'N/A'; 
+  // Це список всіх символів, які Telegram вимагає екранувати у MarkdownV2
+  return text.replace(/([_*\[\]()~`>#\+\-=|{}.!])/g, '\\$1');
+}
+
+
+// --- Твоя функція (майже без змін) ---
 async function checkSheetAndSend() {
   console.log('Запущено перевірку таблиці (CRON)...');
   
-  // перевірки .env
+  // Всі перевірки .env
   if (!chatId) {
     console.error('ПОМИЛКА: CHAT_ID не вказано. Зупиняю cron.');
     return;
   }
   if (!sheetUrl) {
     console.error('ПОМИЛКА: SHEET_URL не вказано. Зупиняю cron.');
-    await bot.telegram.sendMessage(chatId, 'Помилка cron: SHEET_URL не вказано.');
+    // Намагаємося повідомити про помилку, якщо можемо
+    try {
+      await bot.telegram.sendMessage(chatId, 'Помилка cron: SHEET_URL не вказано.');
+    } catch (e) {
+      console.error('Не вдалося надіслати повідомлення про помилку CHAT_ID');
+    }
     return;
   }
 
   try {
-    // получаємо сьогоднішню дату
+    // Отримуємо сьогоднішню дату
     const today = new Date().toLocaleDateString('uk-UA', {
       timeZone: 'Europe/Kyiv',
       day: '2-digit',
@@ -36,20 +54,26 @@ async function checkSheetAndSend() {
     });
     console.log(`Cron job: Сьогоднішня дата (Київ): ${today}`);
 
-    // завантажуємо CSV-файл
+    // Завантажуємо CSV-файл
     const response = await fetch(sheetUrl);
     if (!response.ok) {
       throw new Error(`Не вдалося завантажити таблицю: ${response.statusText}`);
     }
     const csvData = await response.text();
 
-    // парсим
+    // Парсимо CSV
     const rows = csvData.trim().split(/\r?\n/);
+    if (rows.length < 2) {
+      throw new Error('Таблиця порожня або містить лише заголовки.');
+    }
+
     let headers = rows[0].split(',').map(h => h.trim());
+    // Очищуємо BOM-символ з першого заголовка
     if (headers[0] && headers[0].charCodeAt(0) === 0xFEFF) {
       headers[0] = headers[0].substring(1);
     }
 
+    // Знаходимо індекси
     const dateIndex = headers.indexOf('Публікація');
     const pubIndex = headers.indexOf('Публікація');
     const postIndex = headers.indexOf('Допис');
@@ -57,43 +81,50 @@ async function checkSheetAndSend() {
     const imageAuthorIndex = headers.indexOf('Виконавець картинки');
 
     if (dateIndex === -1) {
-      throw new Error('Не можу знайти стовпець "Публіка...');
+      console.error('Отримані заголовки:', headers);
+      throw new Error('Не можу знайти стовпець "Публікація". Перевір назву у таблиці.');
     }
 
+    // Пошук збігів
     for (let i = 1; i < rows.length; i++) {
       const columns = rows[i].split(',').map(c => c.trim());
+      if (columns.length <= dateIndex) {
+        continue;
+      }
       const postDate = columns[dateIndex];
 
       if (postDate === today) {
         console.log(`Cron job: Знайдено збіг! Дата: ${postDate}`);
         
-        const publication = columns[pubIndex] || 'N/A';
-        const postText = columns[postIndex] || 'N/A';
-        const textAuthor = columns[textAuthorIndex] || 'N/A';
-        const imageAuthor = columns[imageAuthorIndex] || 'N/A';
-
+        const publication = escapeMarkdownV2(columns[pubIndex]);
+        const postText = escapeMarkdownV2(columns[postIndex]);
+        const textAuthor = escapeMarkdownV2(columns[textAuthorIndex]);
+        const imageAuthor = escapeMarkdownV2(columns[imageAuthorIndex]);
+        
         const message = `
-🔔 **Нагадування про публікацію на сьогодні (${today})** 🔔
+🔔 *Нагадування про публікацію на сьогодні (${escapeMarkdownV2(today)})* 🔔
 
-**Дата:**
+*Дата:*
 ${publication}
 
-**Допис:**
+*Допис:*
 ${postText}
 
-**Виконавець (Текст):** ${textAuthor}
-**Виконавець (Картинка):** ${imageAuthor}
+*Виконавець (Текст):* ${textAuthor}
+*Виконавець (Картинка):* ${imageAuthor}
         `;
 
-        await bot.telegram.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+        await bot.telegram.sendMessage(chatId, message, { parse_mode: 'MarkdownV2' });
         console.log(`Cron job: Повідомлення надіслано до чату ${chatId}`);
       }
     }
     console.log('Cron job: Перевірку завершено.');
+
   } catch (error) {
     console.error('Cron job: Сталася помилка:', error.message);
     try {
-      // Намагаємося надіслати помилку в Telegram
+      // надіслати помилку в Telegram
+      // Прибираємо форматування з повідомлення про помилку
       await bot.telegram.sendMessage(chatId, `Помилка Cron: ${error.message}`);
     } catch (e) {
       console.error('Cron job: Не вдалося надіслати повідомлення про помилку', e);
@@ -102,7 +133,6 @@ ${postText}
 }
 
 // --- Vercel Handler ---
-// головна функція, яку Vercel викличе
 module.exports = async (req, res) => {
   await checkSheetAndSend();
   res.status(200).send('Cron job виконано.');
