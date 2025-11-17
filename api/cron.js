@@ -113,18 +113,17 @@ ${postText}
 *Виконавець (Текст):* ${textAuthor}
 *Виконавець (Картинка):* ${imageAuthor}
         `;
-
         await bot.telegram.sendMessage(chatId, message, { parse_mode: 'MarkdownV2' });
         console.log(`Cron job: Повідомлення надіслано до чату ${chatId}`);
       }
     }
-    console.log('Cron job: Перевірку завершено.'); 
+    console.log('Cron job: Перевірку завершено.');
 
   } catch (error) {
     console.error('Cron job: Сталася помилка:', error.message);
     try {
       // надіслати помилку в Telegram
-      // Прибираємо форматування з повідомлення про помилку
+      // Прибираємо форматування з повідомлення про помилку, щоб воно гарантовано надіслалось
       await bot.telegram.sendMessage(chatId, `Помилка Cron: ${error.message}`);
     } catch (e) {
       console.error('Cron job: Не вдалося надіслати повідомлення про помилку', e);
