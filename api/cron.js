@@ -13,11 +13,9 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const sheetUrl = process.env.SHEET_URL;
 const chatId = process.env.CHAT_ID;
 
-// ---- ⬇️ ФУНКЦІЯ ВІД МАКСА (Адаптована під JS) ⬇️ ----
 function escapeHTML(text) {
-  if (!text) return 'N/A'; // Якщо тексту немає
+  if (!text) return 'N/A'; 
   
-  // Перетворюємо на рядок, якщо це раптом число
   text = String(text);
 
   let result = '';
@@ -30,7 +28,6 @@ function escapeHTML(text) {
     if (ch === '&') escape = '&amp;';
     else if (ch === '<') escape = '&lt;';
     else if (ch === '>') escape = '&gt;';
-    // Також бажано екранувати лапки для повної безпеки
     else if (ch === '"') escape = '&quot;';
     else if (ch === "'") escape = '&#039;';
 
@@ -40,10 +37,9 @@ function escapeHTML(text) {
     }
   }
 
-  if (lastIndex === 0) return text; // Нічого екранувати не треба було
+  if (lastIndex === 0) return text; 
   return result + text.slice(lastIndex);
 }
-// ---- ⬆️ КІНЕЦЬ ФУНКЦІЇ ⬆️ ----
 
 
 async function checkSheetAndSend() {
@@ -95,15 +91,11 @@ async function checkSheetAndSend() {
       if (postDate === today) {
         console.log(`Знайдено пост на сьогодні!`);
         
-        // ---- ВИКОРИСТОВУЄМО HTML ----
-        // 1. Очищуємо дані функцією Макса
         const publication = escapeHTML(columns[pubIndex]);
         const postText = escapeHTML(columns[postIndex]);
         const textAuthor = escapeHTML(columns[textAuthorIndex]);
         const imageAuthor = escapeHTML(columns[imageAuthorIndex]);
         
-        // 2. Використовуємо теги <b> для жирного тексту
-        // Зверни увагу: дужки () тепер безпечні, їх не треба екранувати
         const message = `
 🔔 <b>Нагадування про публікацію на сьогодні (${escapeHTML(today)})</b> 🔔
 
@@ -117,7 +109,6 @@ ${postText}
 <b>Виконавець (Картинка):</b> ${imageAuthor}
         `;
 
-        // 3. Відправляємо як HTML
         await bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
         console.log(`Надіслано в чат ${chatId}`);
       }
