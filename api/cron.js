@@ -1,12 +1,10 @@
 // --- api/cron.js ---
-// Цей файл виконує тікі перевірку таблиці.
-// Vercel буде тикати його за розкладом.
-
 require('dotenv').config();
 require('dns').setDefaultResultOrder('ipv4first');
 const { Telegraf } = require('telegraf');
 const fetch = require('node-fetch');
 
+// --- Ініціалізація ---
 if (!process.env.BOT_TOKEN) {
   console.error('ПОМИЛКА: BOT_TOKEN не вказано!');
   process.exit(1);
@@ -15,92 +13,97 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 const sheetUrl = process.env.SHEET_URL;
 const chatId = process.env.CHAT_ID;
 
+// ---- ⬇️ ФУНКЦІЯ ВІД МАКСА (Адаптована під JS) ⬇️ ----
 function escapeHTML(text) {
-  if (!text) return 'N/A'; 
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  if (!text) return 'N/A'; // Якщо тексту немає
+  
+  // Перетворюємо на рядок, якщо це раптом число
+  text = String(text);
+
+  let result = '';
+  let lastIndex = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    let escape = '';
+
+    if (ch === '&') escape = '&amp;';
+    else if (ch === '<') escape = '&lt;';
+    else if (ch === '>') escape = '&gt;';
+    // Також бажано екранувати лапки для повної безпеки
+    else if (ch === '"') escape = '&quot;';
+    else if (ch === "'") escape = '&#039;';
+
+    if (escape) {
+      result += text.slice(lastIndex, i) + escape;
+      lastIndex = i + 1;
+    }
+  }
+
+  if (lastIndex === 0) return text; // Нічого екранувати не треба було
+  return result + text.slice(lastIndex);
 }
+// ---- ⬆️ КІНЕЦЬ ФУНКЦІЇ ⬆️ ----
 
 
 async function checkSheetAndSend() {
   console.log('Запущено перевірку таблиці (CRON)...');
   
-  if (!chatId) {
-    console.error('ПОМИЛКА: CHAT_ID не вказано. Зупиняю cron.');
-    return;
-  }
-  if (!sheetUrl) {
-    console.error('ПОМИЛКА: SHEET_URL не вказано. Зупиняю cron.');
-    try {
-      await bot.telegram.sendMessage(chatId, 'Помилка cron: SHEET_URL не вказано.');
-    } catch (e) {
-      console.error('Не вдалося надіслати повідомлення про помилку CHAT_ID');
-    }
+  if (!chatId || !sheetUrl) {
+    console.error('ПОМИЛКА: CHAT_ID або SHEET_URL не вказано.');
     return;
   }
 
   try {
-    // Отримуємо сьогоднішню дату
+    // 1. Отримуємо дату
     const today = new Date().toLocaleDateString('uk-UA', {
       timeZone: 'Europe/Kyiv',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'
     });
-    console.log(`Cron job: Сьогоднішня дата (Київ): ${today}`);
+    console.log(`Cron job: Сьогоднішня дата: ${today}`);
 
-    // Завантажуєм CSV-файл
+    // 2. Завантажуємо
     const response = await fetch(sheetUrl);
-    if (!response.ok) {
-      throw new Error(`Не вдалося завантажити таблицю: ${response.statusText}`);
-    }
+    if (!response.ok) throw new Error(`Помилка завантаження: ${response.statusText}`);
     const csvData = await response.text();
 
-    // Парсимо CSV
+    // 3. Парсимо
     const rows = csvData.trim().split(/\r?\n/);
-    if (rows.length < 2) {
-      throw new Error('Таблиця порожня або містить лише заголовки.');
-    }
-
     let headers = rows[0].split(',').map(h => h.trim());
-    // Очищуємо BOM-символ
     if (headers[0] && headers[0].charCodeAt(0) === 0xFEFF) {
       headers[0] = headers[0].substring(1);
     }
 
-    // Знаходимо індекси
+    // 4. Індекси
     const dateIndex = headers.indexOf('Публікація');
     const pubIndex = headers.indexOf('Публікація');
     const postIndex = headers.indexOf('Допис');
     const textAuthorIndex = headers.indexOf('Виконавець тексту');
     const imageAuthorIndex = headers.indexOf('Виконавець картинки');
 
-    if (dateIndex === -1) {
-      console.error('Отримані заголовки:', headers);
-      throw new Error('Не можу знайти стовпець "Публікація". Перевір назву у таблиці.');
-    }
+    if (dateIndex === -1) throw new Error('Стовпець "Публікація" не знайдено.');
 
-    // Пошук збігів
+    // 5. Пошук
     for (let i = 1; i < rows.length; i++) {
       const columns = rows[i].split(',').map(c => c.trim());
-      if (columns.length <= dateIndex) {
-        continue;
-      }
+      if (columns.length <= dateIndex) continue;
+      
       const postDate = columns[dateIndex];
 
       if (postDate === today) {
-        console.log(`Cron job: Знайдено збіг! Дата: ${postDate}`);
+        console.log(`Знайдено пост на сьогодні!`);
         
+        // ---- ВИКОРИСТОВУЄМО HTML ----
+        // 1. Очищуємо дані функцією Макса
         const publication = escapeHTML(columns[pubIndex]);
         const postText = escapeHTML(columns[postIndex]);
         const textAuthor = escapeHTML(columns[textAuthorIndex]);
         const imageAuthor = escapeHTML(columns[imageAuthorIndex]);
         
-        // <b> замість * та не екрануємо дужки ()
+        // 2. Використовуємо теги <b> для жирного тексту
+        // Зверни увагу: дужки () тепер безпечні, їх не треба екранувати
         const message = `
 🔔 <b>Нагадування про публікацію на сьогодні (${escapeHTML(today)})</b> 🔔
 
@@ -114,23 +117,21 @@ ${postText}
 <b>Виконавець (Картинка):</b> ${imageAuthor}
         `;
 
+        // 3. Відправляємо як HTML
         await bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
-        console.log(`Cron job: Повідомлення надіслано до чату ${chatId}`);
+        console.log(`Надіслано в чат ${chatId}`);
       }
     }
-    console.log('Cron job: Перевірку завершено.');
+    console.log('Перевірку завершено.');
 
   } catch (error) {
-    console.error('Cron job: Сталася помилка:', error.message);
+    console.error('Помилка:', error.message);
     try {
       await bot.telegram.sendMessage(chatId, `Помилка Cron: ${error.message}`);
-    } catch (e) {
-      console.error('Cron job: Не вдалося надіслати повідомлення про помилку', e);
-    }
+    } catch (e) {}
   }
 }
 
-// --- Vercel Handler ---
 module.exports = async (req, res) => {
   await checkSheetAndSend();
   res.status(200).send('Cron job виконано.');
