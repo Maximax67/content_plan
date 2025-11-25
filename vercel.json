@@ -1,21 +1,16 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/*.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/webhook",
-      "dest": "/api/webhook.js"
+      "source": "/api/cron",
+      "destination": "/api/cron.ts"
     },
     {
-      "src": "/api/cron",
-      "dest": "/api/cron.js"
+      "source": "/(.*)",
+      "destination": "api/index.ts"
     }
   ],
+  "redirects": [{ "source": "/", "destination": "/api", "permanent": false }],
   "crons": [
     {
       "path": "/api/cron",
